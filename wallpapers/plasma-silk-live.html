@@ -1,0 +1,81 @@
+<title>Plasma Silk Live</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root { --bg: #070707; --hint: #8c8c8c }
+html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden }
+canvas { display: block; width: 100%; height: 100%; cursor: none }
+#hint { position: fixed; left: 16px; bottom: 16px; font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--hint); background: rgba(0,0,0,.55); padding: 6px 10px; border-radius: 6px; transition: opacity .6s }
+#hint.off { opacity: 0 }
+</style>
+<canvas id="c" aria-label="Animated monochrome plasma silk"></canvas>
+<div id="hint">F fullscreen · M colour or mono · Space pause</div>
+<script>
+var FRAG = `precision highp float;
+uniform float u_time;
+uniform vec2 u_res;
+uniform vec2 u_mouse;
+uniform vec3 u_c1, u_c2, u_c3, u_c4;
+uniform float u_scale;
+uniform float u_act;
+float hash21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+vec2 hash22(vec2 p){ float n = hash21(p); return vec2(n, hash21(p + n + 19.19)); }
+float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(hash21(i), hash21(i + vec2(1., 0.)), f.x), mix(hash21(i + vec2(0., 1.)), hash21(i + vec2(1., 1.)), f.x), f.y); }
+float fbm(vec2 p){ float a = .5, s = 0.; mat2 m = mat2(.8, .6, -.6, .8) * 2.02;
+  for (int i = 0; i < 5; i++){ s += a * vnoise(p); p = m * p; a *= .5; } return s * 1.03; }
+vec3 pal(float t){ t = clamp(t, 0., 1.) * 3.; return t < 1. ? mix(u_c1, u_c2, t) : (t < 2. ? mix(u_c2, u_c3, t - 1.) : mix(u_c3, u_c4, t - 2.)); }
+vec2 pc(){ return (gl_FragCoord.xy * 2. - u_res) / min(u_res.x, u_res.y); }
+vec2 mouseP(){ vec2 m = (u_mouse * u_res * 2. - u_res) / min(u_res.x, u_res.y);
+  vec2 a = vec2(sin(u_time * .7) * .75, cos(u_time * .53) * .45) * (u_res / min(u_res.x, u_res.y)) * .9; return mix(a, m, u_act); }
+vec3 fin(vec3 c){ vec2 q = gl_FragCoord.xy / u_res - .5; c *= 1. - .35 * dot(q, q);
+  c += (hash21(gl_FragCoord.xy + fract(u_time) * 31.) - .5) / 200.; return clamp(c, 0., 1.); }
+vec2 vor(vec2 p, float t){ vec2 i = floor(p), f = fract(p); float d1 = 8., d2 = 8.;
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++){
+    vec2 g = vec2(float(x), float(y)); vec2 o = .5 + .5 * sin(t + 6.2831 * hash22(i + g));
+    float d = length(g + o - f); if (d < d1){ d2 = d1; d1 = d; } else if (d < d2) d2 = d; }
+  return vec2(d1, d2); }
+float h31(vec3 p){ p = fract(p * .1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
+float vn3(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(mix(h31(i), h31(i + vec3(1., 0., 0.)), f.x), mix(h31(i + vec3(0., 1., 0.)), h31(i + vec3(1., 1., 0.)), f.x), f.y),
+             mix(mix(h31(i + vec3(0., 0., 1.)), h31(i + vec3(1., 0., 1.)), f.x), mix(h31(i + vec3(0., 1., 1.)), h31(i + vec3(1., 1., 1.)), f.x), f.y), f.z); }
+void main(){
+  vec2 p = pc() * 1.4; float t = u_time * .22;
+  for (int i = 1; i < 6; i++){ float fi = float(i);
+    p += vec2(.62 / fi * sin(fi * p.y * 1.15 + t + .3 * fi), .62 / fi * cos(fi * p.x * 1.15 + t * 1.13 + .5 * fi)); }
+  float fold = p.x * 1.3 + p.y * .9;
+  float sheen = pow(.5 + .5 * sin(fold * 2.2), 3.5);
+  float body = .5 + .5 * sin(fold * 1.1 + 1.);
+  vec3 col = pal(body * .62 + sheen * .45);
+  col *= .55 + .65 * (.5 + .5 * cos(fold * 2.2 - 1.2));
+  col += u_c4 * sheen * .22;
+  gl_FragColor = vec4(clamp(col, 0., 1.), 1.);
+}`;
+var MONO = ['#070707','#2e2e2e','#8c8c8c','#f5f5f5'], COL = ['#1a0910','#7a1f3d','#e0674f','#ffd9a6'], mono = true, paused = false;
+var cv = document.getElementById('c'), gl = cv.getContext('webgl');
+var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function sh(t, s) { var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; }
+var pr = gl.createProgram();
+gl.attachShader(pr, sh(gl.VERTEX_SHADER, 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}'));
+gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FRAG)); gl.linkProgram(pr); gl.useProgram(pr);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,3,-1,-1,3]), gl.STATIC_DRAW);
+var l = gl.getAttribLocation(pr, 'a'); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 2, gl.FLOAT, false, 0, 0);
+function U(n) { return gl.getUniformLocation(pr, n); }
+function rgb(h) { return [1,3,5].map(function (i) { return parseInt(h.slice(i, i + 2), 16) / 255; }); }
+function setColors() { (mono ? MONO : COL).forEach(function (c, i) { gl.uniform3fv(U('u_c' + (i + 1)), rgb(c)); }); }
+setColors(); gl.uniform1f(U('u_scale'), 1); gl.uniform1f(U('u_act'), 0); gl.uniform2f(U('u_mouse'), .5, .5);
+function resize() { var d = Math.min(2, devicePixelRatio || 1) * (/wall/.test(location.search) ? .5 : .75); cv.width = Math.round(cv.clientWidth * d); cv.height = Math.round(cv.clientHeight * d); gl.viewport(0, 0, cv.width, cv.height); }
+var t0 = 14, last = performance.now();
+function draw() { gl.uniform1f(U('u_time'), t0); gl.uniform2f(U('u_res'), cv.width, cv.height); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+function tick(now) { if (!paused && !reduce) t0 += (now - last) / 1000; last = now; draw(); if (!document.hidden) requestAnimationFrame(tick); }
+addEventListener('resize', resize);
+document.addEventListener('visibilitychange', function () { last = performance.now(); if (!document.hidden) requestAnimationFrame(tick); });
+addEventListener('keydown', function (e) {
+  var k = e.key.toLowerCase();
+  if (k === 'f') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(function () {}); }
+  if (k === 'm') { mono = !mono; setColors(); }
+  if (k === ' ') { paused = !paused; e.preventDefault(); }
+});
+if (/wall/.test(location.search)) document.getElementById('hint').style.display = 'none'; setTimeout(function () { document.getElementById('hint').className = 'off'; }, 5000);
+resize(); requestAnimationFrame(tick);
+</script>
